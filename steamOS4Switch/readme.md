@@ -1,8 +1,6 @@
 # (WIP) SteamOS (Arch) on Nintendo Switch via Switchroot L4T — Deep-Dive Engineering Guide
 
-> **Status:** Work-in-Progress (WIP). Expect rough edges; contributions welcome.
->
-> **Scope changes vs previous draft:** We are **not repacking** into a monolithic superimage. We will deploy the **`rootfs`**, **`home`**, and **`var`** trees directly to the SD card (or target media). This version also adds **ARM (aarch64) support guidance** for running an Arch/SteamOS-style userspace on the Switch (Tegra210). This is just an idea at this point
+> **Status:** Work-in-Progress (WIP). This is just an idea at this point
 
 ---
 
