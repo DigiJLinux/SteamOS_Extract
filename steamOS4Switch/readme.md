@@ -13,7 +13,7 @@ We’ll take a **SteamOS (Arch) root filesystem** and marry it with the **Switch
 **Why this split?**
 
 - Switch requires a **vendor kernel + DTB + firmware** tuned for Tegra210 (icosa). That’s Switchroot L4T.
-- SteamOS brings the **gaming-oriented userland** (Arch base, Proton/Steam (Proton probably wont work), PipeWire, etc.).
+- SteamOS brings the **gaming-oriented userland** (Arch base, Proton/Steam (Proton probably wont work, no arm version exist), PipeWire, etc.
 - We inject L4T-specific drivers and (optionally) replace the kernel/modules so the userland runs on Switch hardware.
 
 ---
