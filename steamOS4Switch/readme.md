@@ -1,4 +1,4 @@
-# (WIP) Debian ARM (aarch64) on Nintendo Switch with L4T + FEX‑Emu + Streaming Client Autostart
+# (WIP) Debian ARM (aarch64) on Nintendo Switch with L4T + FEX‑Emu + Steam Client Autostart
 
 > **Status:** Work‑in‑Progress (WIP). This is a deep technical build guide for creating an **ARM Debian** distro for the Nintendo Switch (Tegra210 “icosa”) using **Switchroot L4T** kernel/userspace components, **FEX‑Emu** for x86/x86_64 apps, and a **Steam** that **starts automatically on boot**.
 >
