@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-img2dsk_fedora.py
+img2dsk_fedora.py 
 Extract a SteamOS superimage into a normal
 directory tree on Fedora / RHEL / CentOS — including rootfs, /var, and /home — via
 either CLI or a Tkinter GUI (--gui).
