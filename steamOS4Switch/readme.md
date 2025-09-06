@@ -8,7 +8,7 @@
 
 ## 0) What we are doing (high level)
 
-- Use your tools to **extract** a SteamOS‑like **Arch** userspace from a “superimage” into directories: `rootfs/`, `home/`, `var/`.
+- Use your tools to **extract** the SteamOS **Arch** userspace from the SteamOS recovery Image into directories: `rootfs/`, `home/`, `var/`.
 - **Inject** the **Switchroot L4T** platform stack (kernel, DTBs, firmware, NVIDIA userspace, udev rules) into that userspace.
 - **Deploy** these directories directly onto SD partitions: **FAT32 `/boot`** + **ext4 `/`**.
 - Ensure the userspace is either **native aarch64** or provide **ARM support** layers to run x86_64‑centric software (Steam) on ARM:
