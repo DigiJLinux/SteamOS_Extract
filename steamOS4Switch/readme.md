@@ -36,7 +36,7 @@ We’ll take a **SteamOS (Arch) root filesystem** and marry it with the **Switch
 We provide two families of tools:
 
 1. **Extraction (“flash to directory”)** – turns the multi-partition “superimage” into a working directory:
-   - `img2dsk.py` (CLI, cross-distro)
+   - `img2dsk.py or img2dsk_gui.py` (Debian/Ubuntu)
    - `img2dsk_arch.py` (CLI + GUI, Arch)
    - `img2dsk_fedora.py` (CLI + GUI, Fedora/RHEL)
 
