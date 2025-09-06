@@ -1,4 +1,4 @@
-# img2dsk & repack_superimage Tools
+# SteamOS Recovery Repack Tools
 
 These tools allow you to **extract** and **repack** SteamOS Recovery superimages that contain multiple nested filesystem partitions (`rootfs`, `var`, `home`, EFI/ESP).
 
