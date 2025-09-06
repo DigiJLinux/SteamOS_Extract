@@ -4,6 +4,7 @@
 img2dsk.py
 Extract a SteamOS superimage into a normal
 directory tree — including /var and /home.
+Repack with repack tool
 
 USAGE:
   sudo img2dsk.py /path/to/steamdeck.img /mnt/steamOS
