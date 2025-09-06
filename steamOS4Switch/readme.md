@@ -1,78 +1,86 @@
-# (WIP) SteamOS (Arch) on Nintendo Switch via Switchroot L4T — Deep-Dive Engineering Guide
+# (WIP) Debian ARM (aarch64) on Nintendo Switch with L4T + FEX‑Emu + Streaming Client Autostart
 
-> **Status:** Work-in-Progress (WIP). This is just an idea at this point
-
----
-
-## 0) What we are doing (high level)
-
-- Use your tools to **extract** the SteamOS **Arch** userspace from the SteamOS recovery Image into directories: `rootfs/`, `home/`, `var/`.
-- **Inject** the **Switchroot L4T** platform stack (kernel, DTBs, firmware, NVIDIA userspace, udev rules) into that userspace.
-- **Deploy** these directories directly onto SD partitions: **FAT32 `/boot`** + **ext4 `/`**.
-- Ensure the userspace is either **native aarch64** or provide **ARM support** layers to run x86_64‑centric software (Steam) on ARM:
-  - **Preferred:** **Arch Linux ARM** base (native aarch64 userspace) + x86_64 compatibility via **box64**/**FEX‑EMU** for Steam.
-  - **Not recommended:** Keep a mostly x86_64 root and emulate everything — boot/userland will be painful. Stick to an **aarch64 root**.
+> **Status:** Work‑in‑Progress (WIP). This is a deep technical build guide for creating an **ARM Debian** distro for the Nintendo Switch (Tegra210 “icosa”) using **Switchroot L4T** kernel/userspace components, **FEX‑Emu** for x86/x86_64 apps, and a **Steam** that **starts automatically on boot**.
+>
+> **Goal:** Optimized **streaming client appliance** (Moonlight or Steam Link* see note) with controller, audio, and networking ready, on top of Debian **arm64**.
+>
+> **You are responsible for your device and content. Back up your SD card.**
 
 ---
 
-## 1) Requirements & Warnings
+## 0) Why Debian ARM + L4T on Switch?
 
-- **RCM‑capable Switch**, Hekate payload chain, and Switchroot **L4T‑Loader**.
-- Linux host (Debian/Ubuntu, Fedora/RHEL, or Arch) with root privileges.
-- MicroSD (UHS‑I, ≥64 GB recommended).
-- **Switchroot L4T release** (unpacked) for the Switch (contains `/boot/Image`, `/boot/dtb/tegra210-icosa.dtb`, `/lib/modules/<kver>`, firmware, NVIDIA userspace).
-- Extractor + injector scripts you already have:
-  - `img2dsk.py` (or GUI variant) — to get `rootfs/`, `var/`, `home/`.
-  - `steamOS_switch_l4t_inject.sh` — injects L4T stack (firmware, libs, DTBs, kernel if desired).
+- **L4T (Linux for Tegra)** from **Switchroot** provides a Switch‑specific **kernel**, **DTBs** (notably `tegra210‑icosa.dtb`), **firmware**, and **NVIDIA userspace** necessary to boot Linux on the Switch and access HW acceleration.
+- **Debian ARM64** provides a stable userland with wide package availability.
+- **FEX‑Emu** runs **x86 and x86_64** Linux userland apps on ARM (user‑mode emulation + binfmt). Handy for tools or clients that lack native ARM builds.
+- **Streaming focus:** We deploy a **Moonlight‑Qt** (recommended) or **Steam Link*** client and auto‑launch it for a console‑like experience.
 
-> ⚠️ You can soft‑brick a Linux SD install if you misconfigure boot. Back up first.
+> *As of writing, **Flathub lists Steam Link as x86_64‑only**. Prefer **Moonlight‑Qt** on ARM; see details below.
 
 ---
 
-## 2) Host dependencies
+## 1) References & upstream docs
 
-### Debian/Ubuntu
-```
+- Switchroot Linux hub and distro list: https://wiki.switchroot.org/wiki/linux  citeturn0search4  
+- L4T distributions page (Ubuntu/Fedora): https://wiki.switchroot.org/wiki/linux/linux-distributions  citeturn0search0  
+- FEX‑Emu project: https://github.com/FEX-Emu/FEX  (installer + docs)  citeturn0search1  
+- FEX wiki (building/ARM64EC/dev notes): https://wiki.fex-emu.com  citeturn0search9turn0search5  
+- Moonlight‑Qt client (ARM builds; Debian packages doc): https://github.com/moonlight-stream/moonlight-qt and install wiki  citeturn2search0turn2search5  
+- Flathub Steam Link page (arch availability): https://flathub.org/apps/com.valvesoftware.SteamLink  citeturn1view0  
+
+---
+
+## 2) What you’ll need
+
+- **RCM‑capable Switch**, **Hekate** and **L4T‑Loader** chain already working.
+- A Linux **host** (Debian/Ubuntu, Fedora/RHEL, or Arch) with `sudo`.
+- **MicroSD** card (≥64 GB recommended).
+- A **Switchroot L4T** release unpacked somewhere on the host (we’ll *borrow* kernel/DTBs/firmware/userspace bits). For example, download **L4T Ubuntu Noble** and extract: kernel is under `/boot`, modules under `/lib/modules`, DTBs under `/boot/dtb`.  citeturn0search12
+- Networked **PC host** with **Sunshine** (recommended) or Steam Remote Play host.  citeturn2search1turn2search12
+
+---
+
+## 3) Prepare host dependencies
+
+### Debian/Ubuntu host
+```bash
 sudo apt update
-sudo apt install -y util-linux rsync e2fsprogs file squashfs-tools python3-tk gdisk parted udev qemu-user-static binfmt-support
+sudo apt install -y debootstrap qemu-user-static binfmt-support \
+  util-linux rsync e2fsprogs file gdisk parted udev
 ```
 
-### Fedora/RHEL/CentOS Stream
-```
-sudo dnf install -y util-linux rsync e2fsprogs file squashfs-tools python3-tkinter gdisk parted udev qemu-user-static
-```
-
-### Arch Linux
-```
-sudo pacman -S --needed util-linux rsync e2fsprogs file squashfs-tools tk gptfdisk parted udev qemu-user-static-binfmt
+### Fedora/RHEL host
+```bash
+sudo dnf install -y debootstrap qemu-user-static util-linux \
+  rsync e2fsprogs file gdisk parted udev
 ```
 
-> `qemu-user-static` + binfmt is optional but helpful if you need to **chroot** into an aarch64 tree from an x86_64 host.
+### Arch host
+```bash
+sudo pacman -S --needed debootstrap qemu-user-static-binfmt \
+  util-linux rsync e2fsprogs file gptfdisk parted udev
+```
+
+> `debootstrap` + `qemu-user-static` let you build a **Debian arm64 rootfs** from x86_64 hosts.
 
 ---
 
-## 3) Partitioning the SD (no repack)
+## 4) Partition & format the SD (destructive!)
 
-We are **not** creating a monolithic `.img`. We’ll copy directories straight onto SD partitions.
+**Layout** (example `/dev/sdX`):
+- **p1 FAT32 (1–2 GB)** → `/boot` (Hekate/L4T‑Loader reads kernel/DTB/initramfs here)
+- **p2 ext4 (rest)** → `/` (Debian root)
 
-**Recommended layout (`/dev/sdX`):**
-
-- **p1 (FAT32, 1–2 GB)** → `/boot` (visible to Hekate/L4T‑Loader)
-- **p2 (ext4, rest)** → `/` (root filesystem)
-
-Create & format (destructive!):
-```
+```bash
 sudo parted /dev/sdX --script \
   mklabel gpt \
   mkpart boot fat32 1MiB 2049MiB \
   set 1 boot on \
   mkpart root ext4 2049MiB 100%
-sudo mkfs.vfat -F 32 -n BOOT /dev/sdX1
-sudo mkfs.ext4 -L STEAMOS_ROOT /dev/sdX2
-```
 
-Mount for staging:
-```
+sudo mkfs.vfat -F 32 -n BOOT /dev/sdX1
+sudo mkfs.ext4 -L DEBIAN_ROOT /dev/sdX2
+
 sudo mkdir -p /mnt/sd/boot /mnt/sd/root
 sudo mount /dev/sdX1 /mnt/sd/boot
 sudo mount /dev/sdX2 /mnt/sd/root
@@ -80,250 +88,311 @@ sudo mount /dev/sdX2 /mnt/sd/root
 
 ---
 
-## 4) Extract the SteamOS‑style userspace
+## 5) Bootstrap a minimal **Debian arm64** rootfs
 
-Use your extractor:
-```
-sudo ./img2dsk.py steamdeck.img /tmp/steamOS
-```
-You should have:
-```
-/tmp/steamOS/            # root filesystem 
-/tmp/steamOS/var/        # var
-/tmp/steamOS/home/       # home
+Use **bookworm** (stable) as a baseline:
+
+```bash
+sudo debootstrap --arch=arm64 --foreign bookworm /mnt/sd/root http://deb.debian.org/debian
+sudo cp /usr/bin/qemu-aarch64-static /mnt/sd/root/usr/bin/
+
+# Second stage inside the target root
+sudo chroot /mnt/sd/root /debootstrap/debootstrap --second-stage
+
+# Basic fstab
+sudo tee /mnt/sd/root/etc/fstab >/dev/null <<'EOF'
+LABEL=DEBIAN_ROOT  /     ext4   defaults,noatime  0 1
+LABEL=BOOT         /boot vfat   umask=0077        0 2
+EOF
+
+# Networking & admin basics
+sudo chroot /mnt/sd/root bash -lc '
+apt-get update &&
+apt-get install -y systemd-sysv locales less vim sudo net-tools iproute2 \
+  network-manager ca-certificates dbus udev rsync ssh curl wget \
+  seatd libinput-bin plymouth
+dpkg-reconfigure locales
+systemctl enable NetworkManager
+'
 ```
 
-> If your extractor wrote a **single** tree that already contains `var/` and `home/`, that’s fine — treat `/tmp/steamOS` as rootfs.
+Create a user (for kiosk/auto‑login) and set a password:
+```bash
+sudo chroot /mnt/sd/root bash -lc '
+useradd -m -G sudo,video,input,render,audio,netdev,games kiosk
+echo "kiosk:kiosk" | chpasswd
+'
+```
 
 ---
 
-## 5) ARM support strategy (critical)
+## 6) Inject **L4T** kernel, DTBs, firmware, NVIDIA userspace
 
-### ✅ Preferred: **Native aarch64 rootfs** + **Steam via box64/FEX**
+From your **unpacked Switchroot L4T** tree (e.g., L4T Ubuntu Noble), copy into the Debian root:
 
-- Start with a **native aarch64** userspace (e.g., **Arch Linux ARM** base) and layer Steam on top via **box64** (and optionally **FEX‑EMU**). This keeps systemd/init, coreutils, shells, etc. native ARM — faster and far simpler to maintain.
-- Your extracted SteamOS “look‑and‑feel” can be approximated by **installing the Steam Deck packages** that exist for ARM (gamescope, session glue) and substituting the x86_64 bits with emulation.
+```bash
+# Assume L4T tree at /opt/l4t (contains boot/Image, boot/dtb/, lib/modules/, lib/firmware/, usr/lib/** tegra/nvidia bits)
 
-#### Convert/align your root to Arch Linux ARM repo
-If your extracted tree isn’t already ALARM:
-1. Replace pacman repo defs:
-   - `/etc/pacman.d/mirrorlist` →
-     ```
-     Server = http://mirror.archlinuxarm.org/$arch/$repo
-     ```
-   - `/etc/pacman.conf` → ensure `Architecture = aarch64` and standard `[core] [extra] [community]` sections for ALARM.
-2. Initialize keys:
-   ```
-   sudo arch-chroot /tmp/steamOS pacman-key --init
-   sudo arch-chroot /tmp/steamOS pacman-key --populate archlinuxarm
-   ```
-3. Update base (from host, with binfmt/qemu if needed):
-   ```
-   sudo arch-chroot /tmp/steamOS pacman -Syu --noconfirm base base-devel
-   ```
+# Kernel + DTBs + initramfs (if provided)
+sudo rsync -aH /opt/l4t/boot/Image*   /mnt/sd/boot/
+sudo rsync -aH /opt/l4t/boot/dtb/    /mnt/sd/boot/dtb/
+# Optional initramfs from L4T:
+[ -f /opt/l4t/boot/initramfs ] && sudo rsync -aH /opt/l4t/boot/initramfs /mnt/sd/boot/
 
-#### Install graphics/desktop pieces (aarch64)
+# Kernel modules
+sudo rsync -aH /opt/l4t/lib/modules/ /mnt/sd/root/lib/modules/
+
+# Firmware (wifi/bt/nvidia/tegra/host1x)
+sudo rsync -aH /opt/l4t/lib/firmware/ /mnt/sd/root/lib/firmware/
+
+# NVIDIA/tegra userspace (GL/VK/Multimedia)
+sudo mkdir -p /mnt/sd/root/usr/lib/tegra /mnt/sd/root/usr/lib/nvidia
+sudo rsync -aH /opt/l4t/usr/lib/aarch64-linux-gnu/tegra/  /mnt/sd/root/usr/lib/tegra/ || true
+sudo rsync -aH /opt/l4t/usr/lib/aarch64-linux-gnu/nvidia/ /mnt/sd/root/usr/lib/nvidia/ || true
+
+# Selected GL/VK libs commonly shipped under aarch64-linux-gnu
+for n in libEGL* libGLES* libGLX* libnvidia* libcuda* libvulkan*; do
+  for d in /opt/l4t/usr/lib/aarch64-linux-gnu /opt/l4t/usr/lib; do
+    sudo rsync -aH "$d/$n" /mnt/sd/root/usr/lib/ 2>/dev/null || true
+  done
+done
+
+# Udev rules/helpers
+sudo rsync -aH /opt/l4t/lib/udev/ /mnt/sd/root/lib/udev/ 2>/dev/null || true
+sudo rsync -aH /opt/l4t/lib/udev/rules.d/ /mnt/sd/root/lib/udev/rules.d/ 2>/dev/null || true
+sudo rsync -aH /opt/l4t/etc/udev/rules.d/ /mnt/sd/root/etc/udev/rules.d/ 2>/dev/null || true
+
+# ld.so path entries for injected libs
+sudo tee /mnt/sd/root/etc/ld.so.conf.d/tegra-nvidia.conf >/dev/null <<'EOF'
+/usr/lib/tegra
+/usr/lib/nvidia
+EOF
+
+# Blacklist nouveau (use NVIDIA L4T stack)
+sudo tee /mnt/sd/root/etc/modprobe.d/blacklist-nouveau.conf >/dev/null <<'EOF'
+blacklist nouveau
+options nouveau modeset=0
+EOF
 ```
-sudo arch-chroot /tmp/steamOS pacman -S --needed \
-  linux-firmware mesa-utils glfw-wayland \
-  pipewire pipewire-alsa pipewire-pulse wireplumber \
-  xorg-server xorg-xinit wayland \
-  gamescope mangohud gamemode \
-  seatd libinput
+
+Set up **extlinux** for U‑Boot/L4T‑Loader:
+```bash
+sudo mkdir -p /mnt/sd/boot/extlinux
+sudo tee /mnt/sd/boot/extlinux/extlinux.conf >/dev/null <<'EOF'
+TIMEOUT  30
+DEFAULT  debian
+
+LABEL debian
+  MENU LABEL Debian (L4T Switch)
+  LINUX /boot/Image
+  FDT /boot/dtb/tegra210-icosa.dtb
+# If your kernel is Image.gz, use: LINUX /boot/Image.gz
+# If you copied an initramfs:
+#  INITRD /boot/initramfs
+  APPEND root=LABEL=DEBIAN_ROOT rw rootwait console=tty0 quiet splash
+EOF
 ```
 
-> The **actual GL/VK** on the Switch comes from **L4T NVIDIA userspace** you’ll inject later — the Mesa bits are mostly for tooling and fallback.
+> Switchroot L4T distros and boot flow: see wiki for current expectations and keys.  citeturn0search4turn2search10
 
-#### Add **box64** and/or **FEX‑EMU**
-- **box64** (for x86_64 userspace like Steam):
-  - From AUR on-device (yay) or build from source:
-    ```
-    sudo arch-chroot /tmp/steamOS pacman -S --needed git cmake make gcc
-    sudo arch-chroot /tmp/steamOS bash -lc '
-      git clone https://github.com/ptitSeb/box64 /opt/box64 && \
-      cd /opt/box64 && mkdir build && cd build && \
-      cmake .. -DCMAKE_BUILD_TYPE=Release -DARM_DYNAREC=ON && \
-      make -j$(nproc) && sudo make install
-    '
-    ```
-- **FEX‑EMU** (faster x86_64 emu JIT, optional):
-  - Build or install a package (`fex-emu`), then initialize the rootfs:
-    ```
-    sudo arch-chroot /tmp/steamOS pacman -S --needed python git cmake ninja gcc glibc
-    # Refer to FEX docs for current build steps; package availability varies.
-    ```
-
-#### Steam on ARM (concept)
-- Use the **Steam Linux Runtime (Soldier)** with **box64/FEX** to launch `steamwebhelper` and Steam client.
-- Typical environment (tweak as needed):
-  ```
-  export BOX64_PATH=/usr/lib/steam:/usr/lib/steam/lib64
-  export BOX64_LD_LIBRARY_PATH=/usr/lib:/lib
-  gamescope -f -- box64 /usr/lib/steam/bin/steam -gamepadui
-  ```
-  The exact paths depend on where Steam runtime is installed on your ARM root. Expect iteration.
-
-### 🚫 Not recommended: x86_64 base root on ARM
-Running systemd and base userspace via emulation is fragile. Boot, init, and services should be **native aarch64**. Emulate **only** application layer (Steam).
+Run `ldconfig` against the target (on host):
+```bash
+sudo chroot /mnt/sd/root ldconfig || true
+```
 
 ---
 
-## 6) Inject Switchroot L4T into the rootfs
+## 7) Desktop/graphics/audio stack
 
-Run the purpose‑built injector against the **extracted tree** (not the SD yet):
+Inside the Debian root:
+```bash
+sudo chroot /mnt/sd/root bash -lc '
+apt-get update &&
+apt-get install -y \
+  mesa-utils wayland-protocols xwayland \
+  pipewire pipewire-audio wireplumber \
+  libva-drm2 libvulkan1 vulkan-tools \
+  xorg xinit \
+  libinput-tools evtest \
+  flatpak
+systemctl --global enable wireplumber.service || true
+'
 ```
-sudo ./steamOS_switch_l4t_inject.sh \
-  --root /tmp/steamOS \
-  --switchroot /mnt/switchroot_l4t \
-  --take-kernel \
-  --write-extlinux
-```
-This will:
-- Copy **firmware** (`/lib/firmware/{nvidia,brcm,rtl*,host1x,tegra*}`).
-- Copy **NVIDIA userspace** (`/usr/lib/tegra`, `/usr/lib/nvidia`, relevant GL/VK/CUDA SONAMEs).
-- Set up **udev** rules/helpers; blacklist **nouveau**; add `/etc/ld.so.conf.d/tegra-nvidia.conf`; run `ldconfig -r`.
-- **Adopt Switchroot kernel** (`/boot/Image` or `Image.gz`) + **DTBs** (`/boot/dtb/tegra210-icosa.dtb`) + `/lib/modules/<kver>`.
-- Write **`/boot/extlinux/extlinux.conf`** (edit `root=` later).
 
-> Using the Switchroot kernel is strongly recommended so modules match.
+> L4T’s NVIDIA userspace provides the actual GL/VK on Switch; Mesa packages above are for tooling/fallback. Run `vulkaninfo`/`glxinfo` for sanity checks.
+
+**Joy‑Con/Controller:**
+Switchroot provides docs for pairing. For classic USB/Bluetooth controllers, Debian’s default BlueZ + SDL2 usually suffice. Switch‑specific nuances: see “Linux Features” on Switchroot wiki.  citeturn2search19
 
 ---
 
-## 7) Deploy to SD (copy directories — no repack)
+## 8) Install **Moonlight‑Qt** (recommended client)
 
-Copy your prepared tree onto mounted SD partitions:
+Moonlight has **aarch64** builds and **Debian packages** for ARM SBCs.  citeturn2search5
 
+### Option A: Flatpak (often available, but not always accelerated on ARM)
+```bash
+sudo chroot /mnt/sd/root bash -lc '
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
+flatpak install -y flathub com.moonlight_stream.Moonlight
+'
 ```
-# rootfs + var + home (preserve ownership/xattrs/ACLs)
-sudo rsync -aAXH --numeric-ids /tmp/steamOS/ /mnt/sd/root/
+(If Flatpak isn’t suitable, use Option B.)
 
-# boot payloads (kernel, dtb, initramfs, extlinux)
-sudo rsync -aH /tmp/steamOS/boot/ /mnt/sd/boot/
-```
-
-Confirm `/mnt/sd/boot/extlinux/extlinux.conf` exists and references:
-- `LINUX /boot/Image` **or** `/boot/Image.gz`
-- `FDT /boot/dtb/tegra210-icosa.dtb`
-- `INITRD /boot/initramfs` (if present)
-- `APPEND root=LABEL=STEAMOS_ROOT rw rootwait console=tty0 quiet splash`
-
-Unmount:
-```
-sync
-sudo umount /mnt/sd/boot /mnt/sd/root
-```
-
-Insert SD into Switch.
+### Option B: Native Debian package from Moonlight docs
+Follow Moonlight’s guide to install **aarch64 .deb** releases (v5.0+).  citeturn2search5
 
 ---
 
-## 8) First boot & post‑install
+## 9) (Optional) Steam Link note
 
-- Boot Hekate → **L4T‑Loader** → pick Linux → extlinux entry.
-- On first login:
-  ```
-  sudo ldconfig
-  sudo udevadm control --reload
-  sudo udevadm trigger
-  ```
-- If no initramfs was provided by Switchroot, generate one **on‑device**:
-  - **mkinitcpio:**
-    ```
-    sudo mkinitcpio -P
-    ```
-  - **dracut:**
-    ```
-    sudo dracut --force
-    ```
-
-### Core services
-- Enable PipeWire stack:
-  ```
-  systemctl --user enable --now pipewire pipewire-pulse wireplumber || true
-  ```
-- Input (Joy‑Cons):
-  ```
-  sudo pacman -S --needed joycond
-  sudo systemctl enable --now joycond
-  ```
-- Gamescope session sanity:
-  ```
-  gamescope -f -- glxinfo | head
-  vulkaninfo | head
-  ```
-
-> Ensure GL/VK pick up **NVIDIA L4T** ICD/GLX providers (not Mesa LLVMPipe).
+As of now, **Flathub lists Steam Link for x86_64**; ARM availability varies. Prefer **Moonlight‑Qt** + **Sunshine** for ARM streaming.  citeturn1view0
 
 ---
 
-## 9) Steam on ARM quick‑start (experimental)
+## 10) Install **FEX‑Emu** for x86/x64 apps on ARM
 
-- Install Steam runtime (paths differ; choose your approach). On Arch ARM, you may pull `steam` from an x86_64 repo and run under **box64/FEX**, or use community recipes that vendor Steam runtime.
-- Launch under Gamescope via **box64**:
-  ```
-  export BOX64_NOBANNER=1
-  export BOX64_PATH=/usr/lib/steam:/usr/lib/steam/lib64
-  export BOX64_LD_LIBRARY_PATH=/usr/lib:/lib
-  gamescope -f -- box64 /usr/lib/steam/bin/steam -gamepadui
-  ```
-- Expect to iterate on library paths and env vars. Some users prefer **FEX‑EMU** for better performance; configure `FEX_ROOTFS` as per FEX docs.
+FEX provides an installer for Ubuntu‑like systems; for **other distros** (Debian), follow the wiki build/installation steps.  citeturn0search1turn0search9
 
-> This part is still evolving on ARM handhelds — consider community guides for Steam on ARM with box64/FEX.
-
----
-
-## 10) Troubleshooting
-
-- **Black screen after handoff:** wrong DTB or module mismatch. Confirm `FDT` path and Switchroot kernel used; check `/lib/modules/<kver>` exists.
-- **Cannot mount root:** wrong `root=`; prefer `LABEL=STEAMOS_ROOT` or `UUID=<…>`; `blkid` to discover.
-- **EGL/Vulkan errors:** verify `/usr/lib/tegra`, `/usr/lib/nvidia`, `ld.so.conf.d/tegra-nvidia.conf`; run `ldconfig`.
-- **No Wi‑Fi/BT:** verify `brcm` & BT firmware blobs under `/lib/firmware`; check `dmesg` for `brcmfmac`.
-- **No audio:** PipeWire active? UCM profiles present for Tegra? Check `dmesg` codec probe and `pw-cli ls`.
-- **Steam fails to launch:** adjust **box64/FEX** env and library paths; try headless first, then under gamescope.
-
-Useful logs:
+### Quick path (installer script – may work on Debian bookworm)
+```bash
+sudo chroot /mnt/sd/root bash -lc '
+curl --silent https://raw.githubusercontent.com/FEX-Emu/FEX/main/Scripts/InstallFEX.py | python3
+'
 ```
+This sets up FEX, its rootfs, and **binfmt_misc** so `ELF x86/x86_64` executables run transparently under FEX.
+
+> If the installer doesn’t support your exact Debian release, use the **source build** method from the FEX wiki and run `sudo ninja install` and `sudo ninja binfmt_misc` to register handlers.  citeturn0search9
+
+Sanity check after chroot:
+```bash
+fex --version || echo "FEX not in PATH"
+update-binfmts --display | grep -E 'x86-64|i386' || true
+```
+
+---
+
+## 11) Autologin + Autostart streaming client (kiosk)
+
+Create **TTY1 autologin** for user `kiosk`:
+```bash
+sudo tee /mnt/sd/root/etc/systemd/system/getty@tty1.service.d/override.conf >/dev/null <<'EOF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin kiosk --noclear %I $TERM
+Type=idle
+EOF
+
+sudo chroot /mnt/sd/root systemctl daemon-reload
+sudo chroot /mnt/sd/root systemctl enable getty@tty1.service
+```
+
+**Autostart Moonlight** in a minimal Wayland session (sway or gamescope). For simplicity, use **sway**:
+
+```bash
+sudo chroot /mnt/sd/root apt-get install -y sway grim slurp jq
+
+# User session autostart
+sudo -u kiosk mkdir -p /mnt/sd/root/home/kiosk/.config/systemd/user
+sudo tee /mnt/sd/root/home/kiosk/.config/systemd/user/moonlight-kiosk.service >/dev/null <<'EOF'
+[Unit]
+Description=Moonlight Kiosk (Sway)
+
+[Service]
+Type=simple
+Environment=MOONLIGHT_ARGS=-fullscreen
+ExecStart=/usr/bin/sway --unsupported-gpu --config /home/kiosk/.config/sway/kiosk.conf
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOF
+
+sudo -u kiosk mkdir -p /mnt/sd/root/home/kiosk/.config/sway
+sudo tee /mnt/sd/root/home/kiosk/.config/sway/kiosk.conf >/dev/null <<'EOF'
+# Minimal kiosk sway configuration
+exec "moonlight %MOONLIGHT_ARGS%"
+input type:keyboard repeat_delay 300 repeat_rate 30
+bindsym Mod4+Shift+e exec "systemctl --user stop moonlight-kiosk.service"
+output * bg #000000 solid_color
+exec 'seatd -g video -u kiosk || true'
+EOF
+
+# Enable user service on login
+sudo chroot /mnt/sd/root loginctl enable-linger kiosk
+sudo chroot /mnt/sd/root sudo -u kiosk dbus-launch --exit-with-session systemctl --user enable moonlight-kiosk.service || true
+```
+
+> You can replace sway with **gamescope** directly if desired. Sway is a minimal Wayland compositor with good kiosk behavior.
+
+---
+
+## 12) Performance / power tuning
+
+Inside Debian on the Switch (after first boot):
+```bash
+# Governor
+echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+# Disable screen blanking on TTY
+sudo sed -i 's/^#TTYVTDisallocate.*/TTYVTDisallocate=no/' /etc/systemd/logind.conf
+sudo systemctl restart systemd-logind
+
+# PipeWire (ensure active)
+systemctl --user enable --now wireplumber.service || true
+```
+
+Moonlight settings to try:
+- 720p or 1080p (dock) @ 60 Hz; tweak bitrate to your WLAN/LAN.
+- Prefer **wired** USB‑C Ethernet when possible.
+- Enable **low‑latency** modes on Sunshine host; test HEVC vs H.264.  citeturn2search15
+
+---
+
+## 13) First boot procedure
+
+1. Eject SD → Insert to Switch.
+2. Boot **Hekate → L4T‑Loader → Linux** → extlinux menu → **Debian**.
+3. On first login (autologin `kiosk` on TTY1), sway should start and then **Moonlight**.
+4. Pair Moonlight with your **Sunshine** host; then launch a stream.
+
+Diagnostics:
+```bash
 dmesg -T | less
 journalctl -b --no-pager | less
-cat /proc/cmdline
-lsmod
+glxinfo -B
+vulkaninfo | head
 ```
+If graphics fall back to llvmpipe, recheck **L4T NVIDIA userspace** and library paths (`/usr/lib/tegra`, `/usr/lib/nvidia`, `ld.so.conf.d`).
 
 ---
 
-## 11) Notes on power/perf
+## 14) Troubleshooting
 
-- Governor:
-  ```
-  cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-  ```
-- HDMI scaling vs internal 720p panel — let gamescope handle scaling when possible.
-- Suspend/resume may be unstable; prefer clean shutdown/halt for now.
-
----
-
-## 12) References (Switchroot / L4T)
-
-- Switchroot Linux hub: https://wiki.switchroot.org/wiki/linux
-- Distributions: https://wiki.switchroot.org/wiki/linux/linux-distributions
-- Install guides (Ubuntu/Fedora): 
-  - Jammy 22.04: https://wiki.switchroot.org/wiki/linux/l4t-ubuntu-jammy-installation-guide
-  - Noble 24.04: https://wiki.switchroot.org/wiki/linux/l4t-ubuntu-noble-installation-guide
-  - Fedora 41: https://wiki.switchroot.org/wiki/linux/l4t-fedora-installation-guide-1
-- Boot config (hekate/L4T‑Loader keys): https://wiki.switchroot.org/wiki/linux/linux-boot-configuration
-- Bootstack docs (L4T‑Loader/UBoot/extlinux): https://wiki.switchroot.org/wiki/linux/linux-bootstack-documentation
-- USB/eMMC boot: https://wiki.switchroot.org/wiki/linux/linux-usb-or-emmc-boot
+- **Black screen after bootloader:** confirm `FDT /boot/dtb/tegra210-icosa.dtb` and kernel/modules match.
+- **Cannot mount root:** adjust `root=` in extlinux; use `LABEL=DEBIAN_ROOT` or `UUID=…` (get via `blkid`).
+- **Wi‑Fi/BT absent:** validate firmware in `/lib/firmware/brcm` and dmesg for `brcmfmac`/BT errors.
+- **No audio:** ensure PipeWire stack is running; check ALSA UCM profiles in L4T build.
+- **Moonlight stutter:** try H.264 vs HEVC, lower bitrate/resolution, prefer wired.
+- **Need x86 helper tools:** verify **FEX** binfmt registration; `update-binfmts --display`.
 
 ---
 
-## 13) Roadmap / To‑Do (WIP)
+## 15) Notes on “Steam for ARM”
 
-- Prebuilt **ALARM + L4T** root tarball for faster bootstrapping.
-- Packaged recipes for **box64**, **FEX‑EMU**, **gamescope** tuned for Switch.
-- Automate `extlinux.conf` root device discovery.
-- Power management tuning (clocks, DVFS) specific to Switch panels/docks.
-- End‑to‑end script to prepare SD automatically (partition → copy → boot).
+There is **no widely available native Linux ARM Steam client** today. For streaming on ARM, prefer **Moonlight‑Qt** without emulating Steam itself. The **Steam Link** Flatpak page currently lists **x86_64** availability; ARM builds may not be available on Flathub at this time.  citeturn1view0
 
 ---
 
-**Good luck, and happy hacking.**
+## 16) What’s next (WIP roadmap)
+
+- Provide a pre‑baked **Debian arm64 rootfs tarball** with L4T bits pre‑injected.
+- Optional **gamescope‑kiosk** session instead of sway.
+- Automate SD provisioning (partition → debootstrap → inject L4T → kiosk).
+- Jetson/NVV4L2 decoder verification in Moonlight build flags for best HW decode on T210.
+- Controller UX: auto‑pair Joy‑Cons; map ABXY for Steam‑style prompts.
+
+---
+
+**Happy hacking & streaming!**
+
