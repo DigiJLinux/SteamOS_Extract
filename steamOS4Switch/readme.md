@@ -2,7 +2,7 @@
 
 > **Status:** Work-in-Progress (WIP). Expect rough edges; contributions welcome.
 >
-> **Scope changes vs previous draft:** We are **not repacking** into a monolithic superimage. We will deploy the **`rootfs`**, **`home`**, and **`var`** trees directly to the SD card (or target media). This version also adds **ARM (aarch64) support guidance** for running an Arch/SteamOS-style userspace on the Switch (Tegra210).
+> **Scope changes vs previous draft:** We are **not repacking** into a monolithic superimage. We will deploy the **`rootfs`**, **`home`**, and **`var`** trees directly to the SD card (or target media). This version also adds **ARM (aarch64) support guidance** for running an Arch/SteamOS-style userspace on the Switch (Tegra210). This is just an idea at this point
 
 ---
 
