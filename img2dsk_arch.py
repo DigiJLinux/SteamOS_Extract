@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 img2dsk_arch.py
-Extract a Steam-Deck–style “superimage” (.img with multiple partitions) into a normal
-directory tree on Arch Linux — including rootfs, /var, and /home — with either
+Extract a SteamOS superimage into a normal
+directory tree — including rootfs, /var, and /home — with either
 CLI **or** a Tkinter GUI launched via --gui.
 
 Arch packages you'll likely need:
