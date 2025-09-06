@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-img2dsk.py
+img2dsk.py 
 Extract a SteamOS superimage into a normal
 directory tree — including /var and /home.
 Repack with repack tool
