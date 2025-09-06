@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 img2dsk.py
-Extract the Linux filesystem from a Steam-Deck/“superimage” disk image
-into a normal directory — including /var and /home.
+Extract a SteamOS superimage into a normal
+directory tree — including /var and /home.
 
 USAGE:
   sudo img2dsk.py /path/to/steamdeck.img /mnt/steamOS
