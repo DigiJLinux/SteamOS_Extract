@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 img2dsk_gui.py
-Linux GUI app to extract a Steam-Deck style “superimage” (.img with multiple partitions)
-into a normal directory tree — including rootfs, /var, and /home.
+Extract a SteamOS superimage into a normal
+directory tree — including rootfs, /var, and /home.
 
 Usage:
   sudo ./img2dsk_gui.py
