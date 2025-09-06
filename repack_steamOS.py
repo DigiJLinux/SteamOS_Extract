@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 repack_steamOS.py
-Repack a Steam-Deck/SteamOS-style "superimage" by replacing rootfs/var/home
+Repack a SteamOS recovery superimage by replacing rootfs/var/home
 from a directory tree previously extracted with img2dsk.
 
 Works on Debian/Ubuntu, Fedora/RHEL/CentOS, Arch.
@@ -16,13 +16,13 @@ DEPENDENCIES:
   sudo pacman -S --needed util-linux rsync e2fsprogs file squashfs-tools
 
 USAGE:
-  sudo ./repack_superimage.py \
+  sudo ./repack_steamOS.py \
       --old steamdeck.img \
       --root /mnt/steamOS \
       --out new_steamdeck.img
   # skip /var and/or /home partitions in the repack:
-  sudo ./repack_superimage.py --old steamdeck.img --root /mnt/steamOS --out new.img --no-var
-  sudo ./repack_superimage.py --old steamdeck.img --root /mnt/steamOS --out new.img --no-home
+  sudo ./repack_steamOS.py --old steamdeck.img --root /mnt/steamOS --out new.img --no-var
+  sudo ./repack_steamOS.py --old steamdeck.img --root /mnt/steamOS --out new.img --no-home --no-var
 """
 
 import argparse
