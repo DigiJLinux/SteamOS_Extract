@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-img2dsk_gui.py
+img2dsk_gui.py 
 Extract a SteamOS superimage into a normal
 directory tree — including rootfs, /var, and /home.
 
